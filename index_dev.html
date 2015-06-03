@@ -1,0 +1,194 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>SJSU Wayfinding</title>
+
+    <div id="placeholder"></div>
+    <link href="css/bootstrap-responsive.css" rel="stylesheet">
+    <link href="css/bootstrap.min.css" rel="stylesheet" media="screen">
+    <script src="js/jquery-1.11.0.min.js"></script>
+
+    <script src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/raphael-min.js"></script>
+    <script type="text/javascript" src="js/bundle.js"></script>
+    <script language='javascript'>
+	// global variables
+	var start_building;
+	var start_x;
+	var start_y;
+	var start_index;
+	function updateStart(start_node){
+        	console.log("value: " + start_node.value);
+		console.log("text: " + start_node.options[start_node.selectedIndex].text);
+		start_building = start_node.options[start_node.selectedIndex].text;
+		start_index = start_node.value;
+		start_x = start_node.x;
+		start_y=start_node.y;
+	}
+	function setStart(){
+		poi_set[start_index] = {x: start_x, y: start_y, thpe: "start"};
+	}
+	var start_building;
+	var start_index;
+        $( document ).ready(function() {
+            // map vars 
+            var imageurl = "campusmap.png";
+            var srcWidth = 660;
+            var srcHeight = 694;
+            var imageScale = 1.0;
+            var imageWidth = srcWidth * imageScale;
+            var imageHeight = srcHeight * imageScale;
+            var paper; // "canvas"
+            // var start_building; // default
+            if (typeof global === "undefined") {
+                start_building = "CL";
+		console.log("Global data not found, using default start");
+            } else {
+                start_building = global.applicationData.value("building");
+		if (start_building == ""){
+			// location is not set for this IEC
+			console.log("no start building found in global data, using default");
+			start_building = "ADM";
+		}
+		console.log("Start: " + start_building);
+            }
+           
+            // var start_x;
+            // var start_y;
+            // var start_index;
+            var dest_color = "#000";
+            var lines = [];
+            
+            $("#mapelem").height(imageHeight).width(imageWidth);
+
+	    // Create starting point menu
+            $(".span12").append('<p>Start:</p><select id="start_select" onchange="updateStart(this)"></select>');
+	    $(".span12").append('<p>End:</p>');
+            Raphael("mapelem", imageWidth, imageHeight, function(text) {
+                paper = this; //this is valid within this function
+
+                // Draw the map on the page
+                papermapimage = paper.image(imageurl, 0, 0, imageWidth, imageHeight);
+                
+                // Get the path information from the map
+                $.getJSON('data/sjsu.json', function(graph) {
+                    // Look for buildings
+                    $.each(graph.nodes, function(index, node) {
+                        if (node.nodetype == "building") {
+                            if (node.bldgname == start_building) {
+				$("#start_select").append('<option value="' + index + '" selected="selected">' + node.bldgname + '</option>');
+                                start_index = index;
+                                start_x = node.x;
+                                start_y = node.y;
+                                // alert(index);
+                            } else { // don't include the starting point in the list of destinations
+                            // console.log(node.bldgname);
+				$("#start_select").append('<option value="' + index + '">' + node.bldgname + '</option>');
+                            // Add the building name to the list
+                            $(".span12").append("<div id='" + node.bldgname + "'>" + node.bldgname + "</div>");
+                            }
+
+                            var circleDraw = paper.circle(node.x, node.y, 5);
+                            // hide circles
+                            circleDraw.attr("stroke-opacity", "0");
+                            // var circleClicked = false;
+                            circleDraw.id  = index;
+                            poi_set = {};
+
+                            // Assign events
+                            var start = true;
+
+                            $('#' + node.bldgname).click(function(evt) {
+
+
+                                console.log("clicked on " + node.bldgname);
+                                var poi_id = circleDraw.id;
+                                console.log("id: " + circleDraw.id);
+ 
+                                circleDraw.attr("fill", dest_color);
+                                circleDraw.attr("fill-opacity", "1");
+                                //circleClicked = true;
+                                poi_set = {};
+                                poi_set[poi_id] = {x: node.x, y: node.y, type: "poi"};
+                                poi_set[start_index] = {x: start_x, y: start_y, type: "start"};
+                                // Run the Dijkstra algorithm via server
+                                var myData = JSON.stringify(poi_set);
+                                console.log("poi_set: " + myData);
+                                $.ajax( {
+                                    url : "?action=poiPath" ,
+                                    data : {poi: myData},
+                                    //type : "PUT",
+                                    contentType : 'json',
+                                    // processData : false,
+                                    success : function(poiPath, status) {
+                                        console.log("Received poiPath data from server!!!");
+                                        console.log(poiPath);
+                                        drawPath(poi_set, poiPath);
+                                    },
+
+                                    error : function(jqXHR, status, message) {
+                                        console.log("poiPath ajax error (index_dev.html)");
+                                        console.log(status);
+                                        console.log(message);
+                                    }
+                                }); 
+                            });
+                        }
+                    });
+                });
+
+              
+            });
+            
+            function drawPath(poi_set, poiPath) {
+                // make lines
+                // M    moveto  (x y)+
+                // L    lineto  (x y)+
+
+                // remove old lines
+                for (var i = 0; i < lines.length; i++){
+                    lines[i].remove();
+                }
+
+                lines = [];
+
+                $.each(poiPath, function(index, path) {
+                    $.each(path, function(index, edge) {
+                        var pathString = "M" + edge.sx + "," + edge.sy + "L" + edge.ex + "," + edge.ey;
+                        // console.log("path: " + pathString);
+                        var line = paper.path(pathString);
+                        lines[lines.length] = line;
+                        line.attr("stroke","black");
+                        line.attr("stroke-width", 2);
+                    });
+                });
+            } 
+        });
+   </script>
+
+</head>
+<body>
+<nav class="navbar navbar-default" role="navigation">
+ <div class="container-fluid">
+  <div class="navbar-header">
+      <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+      </button>
+      <a class="navbar-brand" href="#">SJSU Wayfinding</a>
+    </div>
+</nav>  
+
+    <div class="container-fluid" width="100%" >
+        <div class="row-fluid" id="mapmetadata">
+            <div class="span2" >
+                <div class="row-fluid"  >
+                    <div class="span12" id="edit" style="float:left;">
+                        <!-- Building list goes here -->
+                    </div>
+                </div>
+            </div>
+            <div class="span10" id="mapelem" style="float:right;"></div>
+        </div>
+    </div>
+</body>
+</html>
